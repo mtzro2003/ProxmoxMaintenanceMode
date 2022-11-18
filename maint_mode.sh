@@ -9,6 +9,9 @@
 #
 # ---------------------------------------------------------
 
+# enable/disable on boot EXCEPT the list
+EXCEPT="251"
+
 # ---BEGIN---
 
 # Require root
@@ -26,6 +29,19 @@ lockfile="/root/maintmode.lock"
 # Functions
 # ---------
 
+function exists_in_list() {
+    LIST=$1
+    DELIMITER=$2
+    VALUE=$3
+    LIST_WHITESPACES=`echo $LIST | tr "$DELIMITER" " "`
+    for x in $LIST_WHITESPACES; do
+        if [ "$x" = "$VALUE" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 # Enable maintenance mode - Query all instances, check which are set to
 # start at boot, record and disable them.
 function enable_maintmode(){
@@ -35,28 +51,36 @@ function enable_maintmode(){
   # List all VMs, filter only the first word, then filter only numerics (IDs):
   for vm in $(qm list | awk '{print $1}' | grep -Eo '[0-9]{1,5}')
   do
-    # Of those, query each VMID and search for those with onboot: enabled:
-    for vmstatus in $(qm config $vm | grep "onboot: 1" | awk '{print $2}')
-    do
-      #Save matching IDs to the lockfile, prepend with VM to identify as a VM:
-      echo "VM$vm" >> $lockfile
-      # Disable onboot for matching VMIDs:
-      qm set $vm -onboot 0
-    done
+    if exists_in_list "$EXCEPT" " " $vm; then
+      echo "Skipping $vm..."
+    else
+      # Of those, query each VMID and search for those with onboot: enabled:
+      for vmstatus in $(qm config $vm | grep "onboot: 1" | awk '{print $2}')
+      do
+        #Save matching IDs to the lockfile, prepend with VM to identify as a VM:
+        echo "VM$vm" >> $lockfile
+        # Disable onboot for matching VMIDs:
+        qm set $vm -onboot 0
+      done
+    fi
   done
 
   # Repeat for CTs as they use a different command to enable/disable:
   for ct in $(pct list | awk '{print $1}' | grep -Eo '[0-9]{1,5}')
   do
-    for ctstatus in $(pct config $ct | grep "onboot: 1" | awk '{print $2}')
-    do
-      # Prepend with CT to identify as a container:
-      echo "CT$ct" >> $lockfile
-      # Disable onboot for matching containers:
-      pct set $ct -onboot 0
-      # pct currently doesn't provide an output like qm does, so simulate it here:
-      echo "update CT $ct: -onboot 0"
-    done
+    if exists_in_list "$EXCEPT" " " $ct; then
+      echo "Skipping $ct..."
+    else
+      for ctstatus in $(pct config $ct | grep "onboot: 1" | awk '{print $2}')
+      do
+        # Prepend with CT to identify as a container:
+        echo "CT$ct" >> $lockfile
+        # Disable onboot for matching containers:
+        pct set $ct -onboot 0
+        # pct currently doesn't provide an output like qm does, so simulate it here:
+        echo "update CT $ct: -onboot 0"
+      done
+    fi
   done
 }
 
